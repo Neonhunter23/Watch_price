@@ -1,22 +1,21 @@
 """CNN architectures for watch price regression (≤250K parameters).
 
-Design philosophy:
-- Depthwise separable convolutions to maximize receptive field within param budget
-- Squeeze-and-Excitation blocks for channel attention (cheap in params)
-- Progressive channel expansion: 16 → 32 → 64 → 128
-- Global Average Pooling to eliminate FC layer bloat
+V4: Multi-input model — CNN features + brand embedding + text features.
+- Image → CNN backbone (depthwise separable, SE blocks, dual conv)
+- Brand → learned embedding (70 brands → 16 dims)
+- Name → 21 binary features (mechanism, style, material, gender)
+- All concatenated → FC regression head
 """
 
 import torch
 import torch.nn as nn
 from torchinfo import summary
 
+from src.data import NUM_TEXT_FEATURES
+
 
 class SEBlock(nn.Module):
-    """Squeeze-and-Excitation block for channel attention.
-
-    Adds ~2*C*C/r parameters (negligible for small C).
-    """
+    """Squeeze-and-Excitation block for channel attention."""
 
     def __init__(self, channels: int, reduction: int = 4):
         super().__init__()
@@ -37,16 +36,12 @@ class SEBlock(nn.Module):
 
 
 class DepthwiseSeparableConv(nn.Module):
-    """Depthwise separable convolution: depthwise + pointwise.
+    """Depthwise separable convolution: depthwise + pointwise."""
 
-    Uses ~(k²·C_in + C_in·C_out) params vs k²·C_in·C_out for standard conv.
-    For k=3, C_in=64, C_out=128: 4,672 vs 73,728 params — 16x savings.
-    """
-
-    def __init__(self, in_channels: int, out_channels: int, stride: int = 1):
+    def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.depthwise = nn.Conv2d(
-            in_channels, in_channels, kernel_size=3, stride=stride,
+            in_channels, in_channels, kernel_size=3,
             padding=1, groups=in_channels, bias=False,
         )
         self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
@@ -58,88 +53,107 @@ class DepthwiseSeparableConv(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    """Convolutional block: Conv/DWSConv → BN → GELU → optional SE → optional pool."""
+    """Convolutional block with optional dual conv for wider receptive field."""
 
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        use_depthwise: bool = True,
-        use_se: bool = True,
-        pool: bool = True,
-    ):
+    def __init__(self, in_ch, out_ch, use_depthwise=True, use_se=True, use_dual_conv=False, pool=True):
         super().__init__()
         layers = []
 
-        if use_depthwise and in_channels > 3:  # First layer uses standard conv
-            layers.append(DepthwiseSeparableConv(in_channels, out_channels))
+        if use_depthwise and in_ch > 3:
+            layers.append(DepthwiseSeparableConv(in_ch, out_ch))
         else:
             layers.extend([
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm2d(out_channels),
+                nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+                nn.BatchNorm2d(out_ch),
                 nn.GELU(),
             ])
 
-        if use_se:
-            layers.append(SEBlock(out_channels))
+        if use_dual_conv:
+            if use_depthwise:
+                layers.append(DepthwiseSeparableConv(out_ch, out_ch))
+            else:
+                layers.extend([
+                    nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
+                    nn.BatchNorm2d(out_ch),
+                    nn.GELU(),
+                ])
 
+        if use_se:
+            layers.append(SEBlock(out_ch))
         if pool:
             layers.append(nn.MaxPool2d(2, 2))
 
         self.block = nn.Sequential(*layers)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         return self.block(x)
 
 
 class WatchPriceCNN(nn.Module):
-    """Lightweight CNN for watch price regression.
+    """Multi-input CNN for watch price regression.
 
-    Architecture: 4 ConvBlocks → GlobalAvgPool → FC head
-    Target: ≤250,000 parameters.
-
-    Args:
-        config: Model section of the project config.
+    Inputs: image (B,3,H,W) + brand_idx (B,) + text_features (B,21)
+    Architecture: CNN → GAP → concat [cnn_feat, brand_embed, text_feat] → FC head
     """
 
     def __init__(self, config: dict):
         super().__init__()
-        base = config.get("base_filters", 16)
+        base = config.get("base_filters", 32)
         n_blocks = config.get("num_blocks", 4)
         use_dw = config.get("use_depthwise", True)
         use_se = config.get("use_se_block", True)
-        dropout = config.get("dropout", 0.3)
-        in_ch = config.get("input_channels", 3)
+        use_dual = config.get("use_dual_conv", False)
+        dropout = config.get("dropout", 0.15)
 
-        # Progressive channel expansion
-        channels = [base * (2 ** i) for i in range(n_blocks)]  # [16, 32, 64, 128]
+        # Brand embedding
+        num_brands = config.get("num_brands", 70)
+        embed_dim = config.get("brand_embed_dim", 16)
+        self.brand_embedding = nn.Embedding(num_brands, embed_dim)
 
+        # Text features dimension
+        self.num_text_features = NUM_TEXT_FEATURES  # 21
+
+        # CNN backbone
+        channels = [base * (2 ** i) for i in range(n_blocks)]
         blocks = []
-        prev_ch = in_ch
-        for i, ch in enumerate(channels):
-            blocks.append(ConvBlock(prev_ch, ch, use_depthwise=use_dw, use_se=use_se))
+        prev_ch = 3
+        for ch in channels:
+            blocks.append(ConvBlock(prev_ch, ch, use_depthwise=use_dw, use_se=use_se, use_dual_conv=use_dual))
             prev_ch = ch
         self.features = nn.Sequential(*blocks)
+        self.pool = nn.AdaptiveAvgPool2d(1)
 
-        # Regression head
+        # FC head: CNN features (256) + brand embed (16) + text features (21) = 293
+        head_input = channels[-1] + embed_dim + self.num_text_features
         self.head = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
             nn.Dropout(dropout),
-            nn.Linear(channels[-1], 64),
+            nn.Linear(head_input, 128),
             nn.GELU(),
             nn.Dropout(dropout * 0.5),
-            nn.Linear(64, 1),
+            nn.Linear(128, 32),
+            nn.GELU(),
+            nn.Linear(32, 1),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.features(x)
-        x = self.head(x)
-        return x.squeeze(-1)
+    def forward(self, image, brand_idx, text_features):
+        x = self.features(image)
+        x = self.pool(x).flatten(1)                    # (B, 256)
+        b = self.brand_embedding(brand_idx)             # (B, 16)
+        combined = torch.cat([x, b, text_features], dim=1)  # (B, 293)
+        return self.head(combined).squeeze(-1)
+
+    def forward_image_only(self, image):
+        """Image-only forward for Grad-CAM (zero metadata)."""
+        x = self.features(image)
+        x = self.pool(x).flatten(1)
+        bs = image.size(0)
+        b = torch.zeros(bs, self.brand_embedding.embedding_dim, device=image.device)
+        t = torch.zeros(bs, self.num_text_features, device=image.device)
+        combined = torch.cat([x, b, t], dim=1)
+        return self.head(combined).squeeze(-1)
 
 
 def count_parameters(model: nn.Module) -> int:
-    """Count trainable parameters."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
@@ -149,22 +163,15 @@ def build_model(config: dict) -> WatchPriceCNN:
     n_params = count_parameters(model)
     max_params = config["model"].get("max_params", 250_000)
 
-    print(f"\n{'='*50}")
-    print(f"Model: {config['model']['architecture']}")
+    print(f"\n{'='*55}")
+    print(f"Model: {config['model']['architecture']} (V4 multi-input)")
     print(f"Parameters: {n_params:,} / {max_params:,} ({n_params/max_params:.1%})")
-    print(f"{'='*50}\n")
+    print(f"  CNN backbone:    {sum(p.numel() for p in model.features.parameters()):,}")
+    print(f"  Brand embed:     {sum(p.numel() for p in model.brand_embedding.parameters()):,}")
+    print(f"  FC head:         {sum(p.numel() for p in model.head.parameters()):,}")
+    print(f"  Text features:   {model.num_text_features} binary inputs (no params)")
+    print(f"{'='*55}\n")
 
     if n_params > max_params:
-        raise ValueError(
-            f"Model has {n_params:,} params, exceeding limit of {max_params:,}. "
-            f"Reduce base_filters or num_blocks in config."
-        )
-
+        raise ValueError(f"Model has {n_params:,} params, exceeding limit of {max_params:,}.")
     return model
-
-
-def print_model_summary(model: nn.Module, img_size: int = 128):
-    """Print detailed model summary with torchinfo."""
-    summary(model, input_size=(1, 3, img_size, img_size), depth=3, col_names=[
-        "input_size", "output_size", "num_params", "kernel_size",
-    ])

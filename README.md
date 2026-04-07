@@ -72,7 +72,7 @@ watch-price-cnn/
 ### Windows (native — recommended)
 
 ```powershell
-git clone https://github.com/YOUR_USER/watch-price-cnn.git
+git clone https://github.com/Neonhunter23/watch-price-cnn.git
 cd watch-price-cnn
 
 # First-time setup (creates venv, installs PyTorch CUDA + all deps)

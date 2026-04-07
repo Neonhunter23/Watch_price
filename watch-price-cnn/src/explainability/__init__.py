@@ -22,6 +22,17 @@ def get_target_layer(model: nn.Module) -> nn.Module:
     return target
 
 
+class _ImageOnlyWrapper(nn.Module):
+    """Wrapper to make multi-input model compatible with Grad-CAM."""
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return self.model.forward_image_only(x)
+
+
 def generate_gradcam(
     model: nn.Module,
     images: torch.Tensor,
@@ -30,22 +41,15 @@ def generate_gradcam(
 ) -> np.ndarray:
     """Generate Grad-CAM heatmaps for a batch of images.
 
-    Args:
-        model: Trained CNN model.
-        images: Batch of normalized images (B, C, H, W).
-        target_layer: Conv layer to visualize. Auto-detected if None.
-        device: Device string.
-
-    Returns:
-        Array of CAM heatmaps (B, H, W) in [0, 1].
+    Uses the image-only forward path (zero brand embedding) for visualization.
     """
     if target_layer is None:
         target_layer = get_target_layer(model)
 
     model.eval()
-    cam = GradCAM(model=model, target_layers=[target_layer])
+    wrapper = _ImageOnlyWrapper(model)
+    cam = GradCAM(model=wrapper, target_layers=[target_layer])
 
-    # For regression, we use the raw output score as the target
     targets = [RawScoresOutputTarget() for _ in range(images.size(0))]
     grayscale_cams = cam(input_tensor=images.to(device), targets=targets)
 

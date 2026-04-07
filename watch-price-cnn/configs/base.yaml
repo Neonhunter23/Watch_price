@@ -9,7 +9,7 @@ data:
   root_dir: data/raw
   metadata_path: data/metadata.csv
   processed_dir: data/processed
-  img_size: 128            # Start small, bump to 160/192 if params allow
+  img_size: 224            # V2: up from 192 for more detail on finishes/logos
   test_size: 0.15
   val_size: 0.15
   num_workers: 0           # 0 for Windows (spawn); set 4 on Linux/Docker
@@ -19,36 +19,43 @@ augmentation:
   horizontal_flip: true
   vertical_flip: false
   rotation_limit: 15
-  brightness_limit: 0.2
-  contrast_limit: 0.2
-  hue_saturation: true
-  coarse_dropout: true     # Cutout-style regularization
-  normalize: true          # ImageNet stats
+  brightness_limit: 0.15
+  contrast_limit: 0.15
+  hue_saturation: false     # Disabled: material color (gold/silver) is a price signal
+  random_resized_crop: true # Zoom-in augmentation to focus on dial/details
+  coarse_dropout: true      # Cutout-style regularization
+  clahe: true               # V4: CLAHE preprocessing on all splits
+  normalize: true           # ImageNet stats
 
 model:
   architecture: WatchPriceCNN
   max_params: 250000       # Hard constraint from assignment
   input_channels: 3
   # Architecture search space (tunable)
-  base_filters: 16
+  base_filters: 32
   num_blocks: 4
   use_depthwise: true      # Depthwise separable convs to save params
   use_se_block: true       # Squeeze-and-excitation for channel attention
-  dropout: 0.3
+  use_dual_conv: true      # Two convs per block for wider receptive field
+  dropout: 0.15            # Reduced from 0.3 (was underfitting)
   activation: gelu
+  # V3: Brand embedding (multi-input)
+  num_brands: 70            # Auto-updated at runtime from metadata
+  brand_embed_dim: 16       # 70 brands → 16-dim learned embedding
 
 training:
-  epochs: 150
-  batch_size: 64           # RTX 5070 12GB VRAM handles this easily
+  epochs: 200
+  batch_size: 48
   optimizer: adamw
-  learning_rate: 0.001
+  learning_rate: 0.0005      # V4: reduced from 0.001 for finer convergence
   weight_decay: 0.01
-  scheduler: cosine        # CosineAnnealingWarmRestarts
+  loss: mse                  # V4: MSE instead of Huber — better high-price gradients
+  scheduler: cosine
   warmup_epochs: 5
-  min_lr: 0.00001
+  min_lr: 0.000001           # V4: lower floor for longer training
   early_stopping:
-    patience: 20
-    min_delta: 0.001
+    patience: 25             # V4: more patience with lower LR
+    min_delta: 0.0005        # V4: finer threshold
     monitor: val_loss
   gradient_clip: 1.0
 
