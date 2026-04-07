@@ -1,0 +1,73 @@
+# ── Base Configuration ────────────────────────────────────────
+# Override per-experiment with configs/experiment_*.yaml
+
+project:
+  name: watch-price-cnn
+  seed: 42
+
+data:
+  root_dir: data/raw
+  metadata_path: data/metadata.csv
+  processed_dir: data/processed
+  img_size: 128            # Start small, bump to 160/192 if params allow
+  test_size: 0.15
+  val_size: 0.15
+  num_workers: 0           # 0 for Windows (spawn); set 4 on Linux/Docker
+  pin_memory: true
+
+augmentation:
+  horizontal_flip: true
+  vertical_flip: false
+  rotation_limit: 15
+  brightness_limit: 0.2
+  contrast_limit: 0.2
+  hue_saturation: true
+  coarse_dropout: true     # Cutout-style regularization
+  normalize: true          # ImageNet stats
+
+model:
+  architecture: WatchPriceCNN
+  max_params: 250000       # Hard constraint from assignment
+  input_channels: 3
+  # Architecture search space (tunable)
+  base_filters: 16
+  num_blocks: 4
+  use_depthwise: true      # Depthwise separable convs to save params
+  use_se_block: true       # Squeeze-and-excitation for channel attention
+  dropout: 0.3
+  activation: gelu
+
+training:
+  epochs: 150
+  batch_size: 64           # RTX 5070 12GB VRAM handles this easily
+  optimizer: adamw
+  learning_rate: 0.001
+  weight_decay: 0.01
+  scheduler: cosine        # CosineAnnealingWarmRestarts
+  warmup_epochs: 5
+  min_lr: 0.00001
+  early_stopping:
+    patience: 20
+    min_delta: 0.001
+    monitor: val_loss
+  gradient_clip: 1.0
+
+target:
+  column: price
+  log_transform: true      # Log1p transform (skewed distribution)
+
+evaluation:
+  metrics: [mae, rmse, r2, mape]
+
+explainability:
+  method: gradcam
+  target_layer: auto       # Last conv layer
+  num_samples: 25          # Images to visualize
+
+output:
+  checkpoint_dir: outputs/checkpoints
+  figures_dir: outputs/figures
+  logs_dir: outputs/logs
+  results_dir: outputs/results
+
+device: auto               # auto → cuda if available, else cpu
