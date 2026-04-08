@@ -1,4 +1,4 @@
-"""Train the watch price CNN model (V4 multi-input).
+"""Train the watch price CNN model. Multi-Input added in V4
 
 Usage:
     python scripts/train.py --config configs/base.yaml
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-from src.data import create_dataloaders, NUM_TEXT_FEATURES
+from src.data import NUM_TEXT_FEATURES, create_dataloaders
 from src.models import build_model
 from src.training import train
 from src.utils import get_device, load_config
@@ -34,18 +34,22 @@ def main():
         print(f"   GPU: {torch.cuda.get_device_name(0)}")
         print(f"   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
-    print("\n📦 Loading data...")
+    print("\n Loading data...")
     train_loader, val_loader, test_loader, brand2idx = create_dataloaders(config)
-    print(f"   Train: {len(train_loader.dataset)} | Val: {len(val_loader.dataset)} | Test: {len(test_loader.dataset)}")
+    print(
+        f"   Train: {len(train_loader.dataset)}"
+        f" | Val: {len(val_loader.dataset)}"
+        f" | Test: {len(test_loader.dataset)}"
+    )
     print(f"   Brands: {len(brand2idx)} | Text features: {NUM_TEXT_FEATURES}")
 
     config["model"]["num_brands"] = len(brand2idx)
 
-    print("\n🏗️  Building model...")
+    print("\n Building model...")
     model = build_model(config)
     model = model.to(device)
 
-    print("\n🚀 Starting training...")
+    print("\n Starting training...")
     history = train(model, train_loader, val_loader, config, device)
 
     set_style()
@@ -60,11 +64,12 @@ def main():
     with open(results_dir / "brand2idx.json", "w") as f:
         json.dump(brand2idx, f, indent=2)
 
-    print("\n✅ Training complete!")
+    print("\n Training complete!")
     print(f"   Best model: {config['output']['checkpoint_dir']}/best_model.pt")
 
 
 if __name__ == "__main__":
     from multiprocessing import freeze_support
+
     freeze_support()
     main()

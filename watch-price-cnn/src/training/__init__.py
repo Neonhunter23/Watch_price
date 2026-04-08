@@ -5,11 +5,9 @@ V4: Handles (images, brand_idxs, text_features, targets) batches.
 """
 
 from pathlib import Path
-from typing import Any
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
@@ -36,11 +34,20 @@ def create_optimizer(model, config):
     tc = config["training"]
     name = tc.get("optimizer", "adamw").lower()
     if name == "adamw":
-        return torch.optim.AdamW(model.parameters(), lr=tc["learning_rate"], weight_decay=tc["weight_decay"])
+        return torch.optim.AdamW(
+            model.parameters(),
+            lr=tc["learning_rate"],
+            weight_decay=tc["weight_decay"],
+        )
     elif name == "adam":
         return torch.optim.Adam(model.parameters(), lr=tc["learning_rate"])
     elif name == "sgd":
-        return torch.optim.SGD(model.parameters(), lr=tc["learning_rate"], momentum=0.9, weight_decay=tc["weight_decay"])
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=tc["learning_rate"],
+            momentum=0.9,
+            weight_decay=tc["weight_decay"],
+        )
     raise ValueError(f"Unknown optimizer: {name}")
 
 
@@ -49,9 +56,17 @@ def create_scheduler(optimizer, config):
     name = tc.get("scheduler", "cosine").lower()
     if name == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=tc["epochs"] - tc.get("warmup_epochs", 5), eta_min=tc.get("min_lr", 1e-6))
+            optimizer,
+            T_0=tc["epochs"] - tc.get("warmup_epochs", 5),
+            eta_min=tc.get("min_lr", 1e-6),
+        )
     elif name == "plateau":
-        return torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=10, factor=0.5)
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            patience=10,
+            factor=0.5,
+        )
     elif name == "none":
         return None
     raise ValueError(f"Unknown scheduler: {name}")
@@ -136,7 +151,11 @@ def train(model, train_loader, val_loader, config, device):
         print(f"\nEpoch {epoch}/{epochs}")
 
         train_metrics = train_one_epoch(
-            model, train_loader, criterion, optimizer, device,
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
             grad_clip=tc.get("gradient_clip"),
         )
         val_metrics = validate(model, val_loader, criterion, device)
@@ -156,14 +175,17 @@ def train(model, train_loader, val_loader, config, device):
 
         if val_metrics["loss"] < best_val_loss:
             best_val_loss = val_metrics["loss"]
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "val_loss": best_val_loss,
-                "config": config,
-            }, checkpoint_dir / "best_model.pt")
-            print(f"  ✅ New best model saved (val_loss={best_val_loss:.4f})")
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": best_val_loss,
+                    "config": config,
+                },
+                checkpoint_dir / "best_model.pt",
+            )
+            print(f"  New best model saved (val_loss={best_val_loss:.4f})")
 
         if scheduler:
             if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
@@ -172,7 +194,7 @@ def train(model, train_loader, val_loader, config, device):
                 scheduler.step()
 
         if early_stopping.step(val_metrics["loss"]):
-            print(f"\n⏹ Early stopping at epoch {epoch} (patience={early_stopping.patience})")
+            print(f"\n Early stopping at epoch {epoch} (patience={early_stopping.patience})")
             break
 
     return history

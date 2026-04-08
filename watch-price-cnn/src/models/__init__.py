@@ -9,7 +9,6 @@ V4: Multi-input model — CNN features + brand embedding + text features.
 
 import torch
 import torch.nn as nn
-from torchinfo import summary
 
 from src.data import NUM_TEXT_FEATURES
 
@@ -41,8 +40,12 @@ class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
         self.depthwise = nn.Conv2d(
-            in_channels, in_channels, kernel_size=3,
-            padding=1, groups=in_channels, bias=False,
+            in_channels,
+            in_channels,
+            kernel_size=3,
+            padding=1,
+            groups=in_channels,
+            bias=False,
         )
         self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         self.bn = nn.BatchNorm2d(out_channels)
@@ -55,28 +58,40 @@ class DepthwiseSeparableConv(nn.Module):
 class ConvBlock(nn.Module):
     """Convolutional block with optional dual conv for wider receptive field."""
 
-    def __init__(self, in_ch, out_ch, use_depthwise=True, use_se=True, use_dual_conv=False, pool=True):
+    def __init__(
+        self,
+        in_ch,
+        out_ch,
+        use_depthwise=True,
+        use_se=True,
+        use_dual_conv=False,
+        pool=True,
+    ):
         super().__init__()
         layers = []
 
         if use_depthwise and in_ch > 3:
             layers.append(DepthwiseSeparableConv(in_ch, out_ch))
         else:
-            layers.extend([
-                nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm2d(out_ch),
-                nn.GELU(),
-            ])
+            layers.extend(
+                [
+                    nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False),
+                    nn.BatchNorm2d(out_ch),
+                    nn.GELU(),
+                ]
+            )
 
         if use_dual_conv:
             if use_depthwise:
                 layers.append(DepthwiseSeparableConv(out_ch, out_ch))
             else:
-                layers.extend([
-                    nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
-                    nn.BatchNorm2d(out_ch),
-                    nn.GELU(),
-                ])
+                layers.extend(
+                    [
+                        nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False),
+                        nn.BatchNorm2d(out_ch),
+                        nn.GELU(),
+                    ]
+                )
 
         if use_se:
             layers.append(SEBlock(out_ch))
@@ -114,11 +129,19 @@ class WatchPriceCNN(nn.Module):
         self.num_text_features = NUM_TEXT_FEATURES  # 21
 
         # CNN backbone
-        channels = [base * (2 ** i) for i in range(n_blocks)]
+        channels = [base * (2**i) for i in range(n_blocks)]
         blocks = []
         prev_ch = 3
         for ch in channels:
-            blocks.append(ConvBlock(prev_ch, ch, use_depthwise=use_dw, use_se=use_se, use_dual_conv=use_dual))
+            blocks.append(
+                ConvBlock(
+                    prev_ch,
+                    ch,
+                    use_depthwise=use_dw,
+                    use_se=use_se,
+                    use_dual_conv=use_dual,
+                )
+            )
             prev_ch = ch
         self.features = nn.Sequential(*blocks)
         self.pool = nn.AdaptiveAvgPool2d(1)
@@ -137,8 +160,8 @@ class WatchPriceCNN(nn.Module):
 
     def forward(self, image, brand_idx, text_features):
         x = self.features(image)
-        x = self.pool(x).flatten(1)                    # (B, 256)
-        b = self.brand_embedding(brand_idx)             # (B, 16)
+        x = self.pool(x).flatten(1)  # (B, 256)
+        b = self.brand_embedding(brand_idx)  # (B, 16)
         combined = torch.cat([x, b, text_features], dim=1)  # (B, 293)
         return self.head(combined).squeeze(-1)
 

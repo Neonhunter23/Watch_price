@@ -23,10 +23,11 @@ outputs/results/
 # IDE
 .vscode/
 .idea/
+*.iml
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Environment
-.env
+# Cache
+.pytest_cache/

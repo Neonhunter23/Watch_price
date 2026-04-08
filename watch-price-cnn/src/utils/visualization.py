@@ -10,12 +10,14 @@ import seaborn as sns
 def set_style():
     """Set consistent plot style across the project."""
     sns.set_theme(style="whitegrid", palette="muted", font_scale=1.1)
-    plt.rcParams.update({
-        "figure.figsize": (10, 6),
-        "figure.dpi": 120,
-        "savefig.dpi": 150,
-        "savefig.bbox": "tight",
-    })
+    plt.rcParams.update(
+        {
+            "figure.figsize": (10, 6),
+            "figure.dpi": 120,
+            "savefig.dpi": 150,
+            "savefig.bbox": "tight",
+        }
+    )
 
 
 def plot_price_distribution(prices: np.ndarray, save_path: Path | None = None):
@@ -63,7 +65,11 @@ def plot_training_curves(history: dict, save_path: Path | None = None):
     return fig
 
 
-def plot_predictions_vs_actual(y_true: np.ndarray, y_pred: np.ndarray, save_path: Path | None = None):
+def plot_predictions_vs_actual(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    save_path: Path | None = None,
+):
     """Scatter plot of predicted vs actual prices."""
     fig, ax = plt.subplots(figsize=(8, 8))
 
@@ -91,9 +97,16 @@ def plot_brand_analysis(df, save_path: Path | None = None):
     axes[0].set_title("Top 15 brands by count")
     axes[0].invert_yaxis()
 
-    brand_order = df.groupby("brand")["price_clean"].median().sort_values(ascending=False).head(15).index
-    sns.boxplot(data=df[df["brand"].isin(brand_order)], y="brand", x="price_clean",
-                order=brand_order, ax=axes[1])
+    brand_order = (
+        df.groupby("brand")["price_clean"].median().sort_values(ascending=False).head(15).index
+    )
+    sns.boxplot(
+        data=df[df["brand"].isin(brand_order)],
+        y="brand",
+        x="price_clean",
+        order=brand_order,
+        ax=axes[1],
+    )
     axes[1].set_title("Price distribution by brand (top 15 by median)")
     axes[1].set_xlabel("Price ($)")
 

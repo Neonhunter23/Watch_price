@@ -65,6 +65,7 @@ def extract_text_features(name: str) -> np.ndarray:
 
 # ── Dataset ──────────────────────────────────────────────────
 
+
 class WatchDataset(Dataset):
     """Watch image dataset with brand + text features.
 
@@ -93,7 +94,10 @@ class WatchDataset(Dataset):
     def __len__(self) -> int:
         return len(self.df)
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self,
+        idx: int,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         row = self.df.iloc[idx]
         image = np.array(Image.open(self.img_dir / row["image_name"]).convert("RGB"))
 
@@ -113,6 +117,7 @@ class WatchDataset(Dataset):
 
 # ── Transforms ───────────────────────────────────────────────
 
+
 def get_transforms(config: dict[str, Any], split: str = "train") -> A.Compose:
     """Build Albumentations transform pipeline with CLAHE preprocessing."""
     img_size = config["data"]["img_size"]
@@ -124,24 +129,37 @@ def get_transforms(config: dict[str, Any], split: str = "train") -> A.Compose:
     if split == "train":
         transforms = common_pre.copy()
         if aug.get("random_resized_crop"):
-            transforms.append(A.RandomResizedCrop(
-                size=(img_size, img_size), scale=(0.75, 1.0), ratio=(0.9, 1.1), p=0.5,
-            ))
+            transforms.append(
+                A.RandomResizedCrop(
+                    size=(img_size, img_size),
+                    scale=(0.75, 1.0),
+                    ratio=(0.9, 1.1),
+                    p=0.5,
+                )
+            )
         transforms.append(A.Resize(img_size, img_size))
-        transforms.extend([
-            A.HorizontalFlip(p=0.5 if aug.get("horizontal_flip") else 0.0),
-            A.Rotate(limit=aug.get("rotation_limit", 15), p=0.5),
-            A.RandomBrightnessContrast(
-                brightness_limit=aug.get("brightness_limit", 0.15),
-                contrast_limit=aug.get("contrast_limit", 0.15), p=0.5,
-            ),
-        ])
+        transforms.extend(
+            [
+                A.HorizontalFlip(p=0.5 if aug.get("horizontal_flip") else 0.0),
+                A.Rotate(limit=aug.get("rotation_limit", 15), p=0.5),
+                A.RandomBrightnessContrast(
+                    brightness_limit=aug.get("brightness_limit", 0.15),
+                    contrast_limit=aug.get("contrast_limit", 0.15),
+                    p=0.5,
+                ),
+            ]
+        )
         if aug.get("hue_saturation"):
             transforms.append(A.HueSaturationValue(hue_shift_limit=5, sat_shift_limit=15, p=0.2))
         if aug.get("coarse_dropout"):
-            transforms.append(A.CoarseDropout(
-                num_holes_range=(1, 4), hole_height_range=(8, 16), hole_width_range=(8, 16), p=0.3,
-            ))
+            transforms.append(
+                A.CoarseDropout(
+                    num_holes_range=(1, 4),
+                    hole_height_range=(8, 16),
+                    hole_width_range=(8, 16),
+                    p=0.3,
+                )
+            )
     else:
         transforms = common_pre + [A.Resize(img_size, img_size)]
 
@@ -152,6 +170,7 @@ def get_transforms(config: dict[str, Any], split: str = "train") -> A.Compose:
 
 
 # ── Metadata & Splits ────────────────────────────────────────
+
 
 def prepare_metadata(config: dict[str, Any]) -> pd.DataFrame:
     """Load and clean the metadata CSV."""
@@ -175,9 +194,19 @@ def create_splits(
     seed = config["project"]["seed"]
 
     df["price_bin"] = pd.qcut(df["price_clean"], q=10, labels=False, duplicates="drop")
-    train_val, test = train_test_split(df, test_size=test_size, random_state=seed, stratify=df["price_bin"])
+    train_val, test = train_test_split(
+        df,
+        test_size=test_size,
+        random_state=seed,
+        stratify=df["price_bin"],
+    )
     relative_val = val_size / (1 - test_size)
-    train, val = train_test_split(train_val, test_size=relative_val, random_state=seed, stratify=train_val["price_bin"])
+    train, val = train_test_split(
+        train_val,
+        test_size=relative_val,
+        random_state=seed,
+        stratify=train_val["price_bin"],
+    )
     return train, val, test
 
 
@@ -198,9 +227,31 @@ def create_dataloaders(
     num_workers = config["data"].get("num_workers", 0)
     pin_memory = config["data"].get("pin_memory", True)
 
-    train_ds = WatchDataset(train_df, img_dir, brand2idx, get_transforms(config, "train"), log_target)
-    val_ds = WatchDataset(val_df, img_dir, brand2idx, get_transforms(config, "val"), log_target)
-    test_ds = WatchDataset(test_df, img_dir, brand2idx, get_transforms(config, "test"), log_target)
+    train_tf = get_transforms(config, "train")
+    val_tf = get_transforms(config, "val")
+    test_tf = get_transforms(config, "test")
+
+    train_ds = WatchDataset(
+        train_df,
+        img_dir,
+        brand2idx,
+        train_tf,
+        log_target,
+    )
+    val_ds = WatchDataset(
+        val_df,
+        img_dir,
+        brand2idx,
+        val_tf,
+        log_target,
+    )
+    test_ds = WatchDataset(
+        test_df,
+        img_dir,
+        brand2idx,
+        test_tf,
+        log_target,
+    )
 
     loader_kwargs = dict(num_workers=num_workers, pin_memory=pin_memory)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, **loader_kwargs)

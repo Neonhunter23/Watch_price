@@ -1,4 +1,4 @@
-"""Evaluate trained model and generate Grad-CAM visualizations (V4).
+"""Evaluate trained model and generate Grad-CAM visualizations.
 
 Usage:
     python scripts/evaluate.py --config configs/base.yaml --gradcam
@@ -36,7 +36,9 @@ def main():
     model = WatchPriceCNN(config["model"])
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device)
-    print(f"✅ Loaded model from epoch {checkpoint['epoch']} (val_loss={checkpoint['val_loss']:.4f})")
+    ep = checkpoint["epoch"]
+    vl = checkpoint["val_loss"]
+    print(f" Loaded model from epoch {ep} (val_loss={vl:.4f})")
 
     y_true, y_pred = predict(model, test_loader, device)
     log_transformed = config["target"].get("log_transform", True)
@@ -58,10 +60,14 @@ def main():
     else:
         y_true_dollar, y_pred_dollar = y_true, y_pred
 
-    plot_predictions_vs_actual(y_true_dollar, y_pred_dollar, save_path=figures_dir / "pred_vs_actual.png")
+    plot_predictions_vs_actual(
+        y_true_dollar,
+        y_pred_dollar,
+        save_path=figures_dir / "pred_vs_actual.png",
+    )
 
     if args.gradcam:
-        print("\n🔍 Generating Grad-CAM visualizations...")
+        print("\n Generating Grad-CAM visualizations...")
         n_samples = config["explainability"].get("num_samples", 25)
 
         images, brand_idxs, text_feats, targets = next(iter(test_loader))
@@ -73,7 +79,15 @@ def main():
         cams = generate_gradcam(model, images, device=device)
 
         with torch.no_grad():
-            preds = model(images.to(device), brand_idxs.to(device), text_feats.to(device)).cpu().numpy()
+            preds = (
+                model(
+                    images.to(device),
+                    brand_idxs.to(device),
+                    text_feats.to(device),
+                )
+                .cpu()
+                .numpy()
+            )
         if log_transformed:
             preds_dollar = np.expm1(preds)
             targets_dollar = np.expm1(targets.numpy())
@@ -81,7 +95,10 @@ def main():
             preds_dollar, targets_dollar = preds, targets.numpy()
 
         plot_gradcam_grid(
-            images, cams, predictions=preds_dollar, actuals=targets_dollar,
+            images,
+            cams,
+            predictions=preds_dollar,
+            actuals=targets_dollar,
             save_path=figures_dir / "gradcam_grid.png",
         )
         print(f"   Saved: {figures_dir}/gradcam_grid.png")
@@ -89,10 +106,11 @@ def main():
         visualize_first_layer_filters(model, save_path=figures_dir / "first_layer_filters.png")
         print(f"   Saved: {figures_dir}/first_layer_filters.png")
 
-    print("\n✅ Evaluation complete!")
+    print("\n Evaluation complete!")
 
 
 if __name__ == "__main__":
     from multiprocessing import freeze_support
+
     freeze_support()
     main()

@@ -15,16 +15,16 @@ A convolutional neural network that estimates the retail price of a watch combin
 
 ## Results
 
-| Metric | Value |
-|--------|-------|
-| **R² (log)** | **0.872** |
-| R² (dollar) | 0.821 |
-| MAE | $76.57 |
-| RMSE | $174.33 |
-| MAPE | 18.3% |
-| Parameters | 226,201 / 250,000 (90%) |
+| Metric | Train | Validation | Test |
+|--------|-------|------------|------|
+| **R² (log)** | 0.960 | 0.913 | **0.859** |
+| R² (dollar) | 0.935 | 0.843 | 0.796 |
+| MAE | $56 | $79 | $85 |
+| RMSE | $112 | $183 | $186 |
+| MAPE | 12.3% | 16.5% | 20.0% |
+| Parameters | | | 226,201 / 250,000 (90%) |
 
-> Results on held-out test set (15% of data, stratified split).
+> Stratified split: 70% train (1,787) / 15% val (383) / 15% test (383).
 
 ### Model evolution
 
@@ -38,7 +38,7 @@ A convolutional neural network that estimates the retail price of a watch combin
 ## Dataset
 
 - **2,553 watch images** across 70 brands (Tissot, Daniel Wellington, Nixon, Swatch, ...)
-- **Price range**: $31 – $3,675 (median $299)
+- **Price range**: 31 – 3,675 dollars (median $299)
 - **Task**: Regression — predict price from image + metadata
 - All images are 406×512 pixels (product catalog photos)
 
@@ -135,11 +135,11 @@ training:
 ## Hardware
 
 - **GPU**: NVIDIA RTX 5070 (12 GB VRAM, Blackwell sm_120)
-- **CPU**: AMD Ryzen 9 9700X
+- **CPU**: AMD Ryzen 7 9700X
 - **RAM**: 32 GB DDR5
 - **PyTorch**: 2.11+ with CUDA 12.8 (required for Blackwell)
 
-Training V4 completes in ~15 minutes (~160 epochs with early stopping at epoch ~140).
+Training V4 completes in ~5 minutes (~160 epochs with early stopping at epoch ~140).
 
 ## License
 
